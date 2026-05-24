@@ -1,0 +1,115 @@
+#include "../clientlib/decompiler_imports.dl"
+#include "../clientlib/loops_semantics.dl"
+#include "../clientlib/guards.dl"
+#include "../clientlib/vulnerability_macros.dl"
+
+// basic functionality
+// map the statement (included in the callgraph) to a function
+.decl JTA_JUMP_Statement(stmt:Statement)
+
+JTA_JUMP_Statement(stmt) :-
+  Statement_Opcode(stmt, "JUMP").
+
+JTA_JUMP_Statement(stmt) :-
+  Statement_Opcode(stmt, "JUMPI").
+
+
+.decl JTA_Statement_Function(stmt:Statement, func:Function)
+JTA_Statement_Function(stmt, func) :-
+  Statement_Function(stmt, func).
+
+JTA_Statement_Function(stmt, caller) :-
+  InFunction(block, caller),
+  CallGraphEdge(block, callee),
+  JTA_Statement_Function(stmt, callee).
+
+.decl JTA_JUMP_To_Calldata(block: Block)
+.output JTA_JUMP_To_Calldata
+
+JTA_JUMP_To_Calldata(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(calldataStmt, "CALLDATALOAD"),
+  Statement_Defines(calldataStmt, calldataVar, _),
+  DataFlows(calldataVar, jumpVar).
+
+JTA_JUMP_To_Calldata(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(byteStmt, "BYTE"),
+  Statement_Defines(byteStmt, byteVar, _),
+  Statement_Uses(byteStmt, calldataVar, 1),
+  Statement_Opcode(calldataStmt, "CALLDATALOAD"),
+  Statement_Defines(calldataStmt, calldataVar, _),
+  DataFlows(byteVar, jumpVar).
+
+JTA_JUMP_To_Calldata(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(andStmt, "AND"),
+  Statement_Defines(andStmt, andVar, _),
+  Statement_Uses(andStmt, calldataVar, 1),
+  Statement_Opcode(calldataStmt, "CALLDATALOAD"),
+  Statement_Defines(calldataStmt, calldataVar, _),
+  DataFlows(andVar, jumpVar).
+
+
+.decl JTA_JUMP_To_MLOAD(block: Block)
+.output JTA_JUMP_To_MLOAD
+
+JTA_JUMP_To_MLOAD(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(mloadStmt, "MLOAD"),
+  Statement_Defines(mloadStmt, mloadVar, _),
+  DataFlows(mloadVar, jumpVar).
+
+.decl JTA_JUMP_To_SLOAD(block: Block)
+.output JTA_JUMP_To_SLOAD
+
+JTA_JUMP_To_SLOAD(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(sloadStmt, "SLOAD"),
+  Statement_Defines(sloadStmt, sloadVar, _),
+  DataFlows(sloadVar, jumpVar).
+
+JTA_JUMP_To_SLOAD(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(andStmt, "AND"),
+  Statement_Defines(andStmt, andVar, _),
+  Statement_Uses(andStmt, sloadVar, 1),
+  Statement_Opcode(sloadStmt, "SLOAD"),
+  Statement_Defines(sloadStmt, sloadVar, _),
+  DataFlows(andVar, jumpVar).
+
+
+.decl JTA_JUMP_To_CallValue(block: Block)
+.output JTA_JUMP_To_CallValue
+
+JTA_JUMP_To_CallValue(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(callvalueStmt, "CALLVALUE"),
+  Statement_Defines(callvalueStmt, callvalueVar, _),
+  DataFlows(callvalueVar, jumpVar).
+
+// Add support for when CALLVALUE is processed through AND operation
+JTA_JUMP_To_CallValue(block) :-
+  JTA_JUMP_Statement(jumpStmt),
+  Statement_Block(jumpStmt, block),
+  Statement_Uses(jumpStmt, jumpVar, 0),
+  Statement_Opcode(andStmt, "AND"),
+  Statement_Defines(andStmt, andVar, _),
+  Statement_Uses(andStmt, callvalueVar, _),
+  Statement_Opcode(callvalueStmt, "CALLVALUE"),
+  Statement_Defines(callvalueStmt, callvalueVar, _),
+  DataFlows(andVar, jumpVar).

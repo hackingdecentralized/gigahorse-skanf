@@ -75,7 +75,7 @@ def test_souffle(souffle_bin: str):
     log_debug(souffle_process.stdout)
 
 class AnalysisExecutor:
-    def __init__(self, timeout: int, interpreted: bool, minimum_client_time: int, debug: bool, souffle_bin: str, cache_dir: str, souffle_macros: str) -> None:
+    def __init__(self, timeout: int, interpreted: bool, minimum_client_time: int, debug: bool, souffle_bin: str, cache_dir: str, souffle_macros: str, fix_jumptable: bool) -> None:
         self.timeout = timeout
         self.interpreted = interpreted
         self.minimum_client_time = minimum_client_time
@@ -83,6 +83,7 @@ class AnalysisExecutor:
         self.souffle_bin = souffle_bin
         self.cache_dir = cache_dir
         self.souffle_macros = souffle_macros
+        self.fix_jumptable = fix_jumptable
 
     def calc_timeout(self, start_time: float, half: bool = False) -> float:
             timeout_left = self.timeout - time.time() + start_time
@@ -350,6 +351,7 @@ class DecompilerFactGenerator(AbstractFactGenerator):
     souffle_pre_clients: list[str]
     other_pre_clients: list[str]
     skip_sig_resolution: bool
+    fix_jumptable: bool
 
 
     def __init__(self, args, pattern: str):
@@ -369,7 +371,9 @@ class DecompilerFactGenerator(AbstractFactGenerator):
         if args.disable_precise_fallback:
             log("The use of the --disable_precise_fallback is deprecated. Its functionality is disabled.")
 
-    def generate_facts(self, contract_filename: str, work_dir: str, out_dir: str) -> tuple[float, float, FactGenUsedEnum]:
+        self.fix_jumptable = args.fix_jumptable
+
+    def generate_facts(self, contract_filename: str, work_dir: str, out_dir: str) -> Tuple[float, float, str]:
         with open(contract_filename) as file:
             bytecode = file.read().strip()
 
@@ -380,7 +384,30 @@ class DecompilerFactGenerator(AbstractFactGenerator):
 
         disassemble_start = time.time()
         blocks = blockparse.EVMBytecodeParser(bytecode).parse()
-        exporter.EVMBlockExporter(work_dir, blocks, True, bytecode, metadata, self.skip_sig_resolution).export()
+        if self.fix_jumptable:
+            possible_jump_blocks = set()
+            prev_out_dir = out_dir.replace("_fixed", "")
+            jump_to_calldata = os.path.join(prev_out_dir, "JTA_JUMP_To_Calldata.csv")
+            jump_to_mload = os.path.join(prev_out_dir, "JTA_JUMP_To_MLOAD.csv")
+            jump_to_sload = os.path.join(prev_out_dir, "JTA_JUMP_To_SLOAD.csv")
+            jump_to_callvalue = os.path.join(prev_out_dir, "JTA_JUMP_To_CallValue.csv")
+
+            for jump_to in [jump_to_calldata, jump_to_mload, jump_to_sload, jump_to_callvalue]:
+                if os.path.exists(jump_to):
+                    with open(jump_to) as f:
+                        for line in f.readlines():
+                            if line.startswith("0x"):
+                                match = re.search(r'0x[0-9a-z]+?(?=0x|$)', line.strip())
+                                if match:
+                                    dst = int(match.group(0), 16)
+                                    possible_jump_blocks.add(dst)
+
+            possible_jump_blocks = sorted(list(possible_jump_blocks))
+            # possible_jump_blocks = possible_jump_blocks[:1] # Limit to 1 for now
+
+            exporter.EVMBlockExporter(work_dir, blocks, False, bytecode, metadata, self.skip_sig_resolution).fix(possible_jump_blocks)
+        else:
+            exporter.EVMBlockExporter(work_dir, blocks, True, bytecode, metadata, self.skip_sig_resolution).export()
 
         os.symlink(join(work_dir, 'bytecode.hex'), join(out_dir, 'bytecode.hex'))
 

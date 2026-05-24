@@ -195,6 +195,12 @@ parser.add_argument(
     metavar="TAC_GEN_CONFIG",
     help="the location of the TAC generation configuration file",
 )
+parser.add_argument("-x",
+                    "--fix_jumptable",
+                    action="store_true",
+                    default=False,
+                    help="Fixes jump tables in the decompilation pipeline.")
+                    
 
 def get_working_dir(contract_name: str) -> str:
     return join(os.path.abspath(args.working_dir), os.path.split(contract_name)[1].split('.')[0])
@@ -244,7 +250,13 @@ def analyze_contract(index: int, contract_filename: str, result_queue, fact_gene
     analysis_executor = fact_generator.analysis_executor
     try:
         # prepare working directory
-        exists, work_dir, out_dir = prepare_working_dir(contract_filename)
+        if analysis_executor.fix_jumptable:
+            parts = contract_filename.split('.')
+            new_contract_name = ".".join(parts[:-1]) + "_fixed." + parts[-1]
+            exists, work_dir, out_dir = prepare_working_dir(new_contract_name)
+        else:
+            exists, work_dir, out_dir = prepare_working_dir(contract_filename)
+
         assert not(args.restart and exists)
         analytics: dict[str, Any] = {}
         contract_name = os.path.split(contract_filename)[1]
@@ -451,7 +463,13 @@ def batch_analysis(fact_generator: AbstractFactGenerator, souffle_clients: list[
             while not contracts_exhausted and len(avail_jobs) > 0:
                 try:
                     index, contract_name = next(contract_iter)
-                    working_dir = get_working_dir(contract_name)
+                    if args.fix_jumptable:
+                        parts = contract_name.split('.')
+                        new_contract_name = ".".join(parts[:-1]) + "_fixed." + parts[-1]
+                        working_dir = get_working_dir(new_contract_name)
+                        print(f"Working dir: {working_dir}")
+                    else:
+                        working_dir = get_working_dir(contract_name)
                     if os.path.isdir(working_dir) and not args.rerun_clients:
                         # no need to create another process
                         continue
@@ -515,7 +533,7 @@ def run_gigahorse(args, fact_generator: AbstractFactGenerator) -> None:
 
     test_souffle(args.souffle_bin)
 
-    analysis_executor = AnalysisExecutor(args.timeout_secs, args.interpreted, args.minimum_client_time, args.debug, args.souffle_bin, args.cache_dir, get_souffle_macros())
+    analysis_executor = AnalysisExecutor(args.timeout_secs, args.interpreted, args.minimum_client_time, args.debug, args.souffle_bin, args.cache_dir, get_souffle_macros(), args.fix_jumptable)
 
     fact_generator.analysis_executor = analysis_executor
 
