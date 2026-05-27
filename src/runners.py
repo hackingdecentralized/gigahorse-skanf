@@ -373,7 +373,7 @@ class DecompilerFactGenerator(AbstractFactGenerator):
 
         self.fix_jumptable = args.fix_jumptable
 
-    def generate_facts(self, contract_filename: str, work_dir: str, out_dir: str) -> Tuple[float, float, str]:
+    def generate_facts(self, contract_filename: str, work_dir: str, out_dir: str) -> tuple[float, float, str]:
         with open(contract_filename) as file:
             bytecode = file.read().strip()
 
